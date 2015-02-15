@@ -1,5 +1,6 @@
 # 0.2.3
 
+- Forked from [cetcd](https://github.com/dwwoelfel/cetcd) project.
 - Release as etcd-clj, use own api: set, get, del instead set-key!, get-key, delete-key!
 - Allow use condition keyword args in set and del
 - Add :order param for `set` for ordering
