@@ -15,7 +15,7 @@
 (def default-config {:protocol "http" :host "127.0.0.1" :port 4001})
 (def ^{:dynamic true :doc "Connection config" }  *etcd-config* default-config)
 
-(def ^{:dynamic true :doc "Connection and read timeout" } *timeout* 1000)
+(def ^{:dynamic true :doc "Connection and read timeout" } *timeout* 2000)
 (def ^:dynamic *api-version* "v2")
 
 (defn set-connection!
@@ -99,10 +99,10 @@
                                  {:ttl ttl}))
            :callback callback))
 
-
 (defn get [key & {:keys [recursive wait wait-index callback sorted]
                       :or {recursive false wait false}}]
-  (api-req :get (->> key url-encode (format "keys/%s"))
+  (api-req :get (->> key url-encode (format "keys/%s"))           
+           :timeout (if wait Integer/MAX_VALUE *timeout*)
            :query-params (merge {}
                                 (filter second
                                        {:wait wait
