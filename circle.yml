@@ -1,3 +1,0 @@
-dependencies:
-  pre:
-    - script/run-etcd.sh

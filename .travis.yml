@@ -1,0 +1,8 @@
+language: clojure
+lein: lein2
+script: lein2 test
+before_script:
+  - wget https://github.com/coreos/etcd/releases/download/v2.0.3/etcd-v2.0.3-linux-amd64.tar.gz -O /tmp/etcd.tar.gz
+  - tar xvfz /tmp/etcd.tar.gz
+  - export PATH=$PATH:$PWD/etcd-v2.0.3-linux-amd64
+  - nohup bash -c "./etcd &"
