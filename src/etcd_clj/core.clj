@@ -137,7 +137,7 @@
   "sets with implicit :dir true and without value"
   [key & {:as opts}]
   (let [args (merge opts {:dir true})]
-    (apply get (flatten (into [key] args)))))
+    (apply set (flatten (into [key nil] args)))))
 
 (defn machines []
   (api-req :get "keys/_etcd/machines"))
