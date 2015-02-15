@@ -1,4 +1,4 @@
-# etcd-clj [![Build Status](https://travis-ci.org/narma/etcd-clj.svg)](https://travis-ci.org/narma/etcd-clj)
+# etcd-clj [![Build Status](https://travis-ci.org/narma/etcd-clj.svg?branch=master)](https://travis-ci.org/narma/etcd-clj)
 
 A Clojure client for [etcd].
 Uses [http-kit] to talk to [etcd], so we get callbacks for free.
@@ -9,7 +9,7 @@ Uses [http-kit] to talk to [etcd], so we get callbacks for free.
 
 ## Changelog
 
-see [HISTORY.md](https://github.com/narma/etcd/blob/master/HISTORY.md)
+see [HISTORY.md](https://github.com/narma/etcd-clj/blob/master/HISTORY.md)
 
 It's a fork of [cetcd](https://github.com/dwwoelfel/cetcd) project.
 The main goal of this lib is to fully cover the last API of etcd and to stay simple.
