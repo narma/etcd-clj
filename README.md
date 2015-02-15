@@ -1,7 +1,7 @@
 # etcd-clj
 
 A Clojure client for [etcd].
-Uses [http-kit] to talk to `etcd`, so we get callbacks for free.
+Uses [http-kit] to talk to [etcd], so we get callbacks for free.
 
 ## Installation
 
@@ -20,7 +20,8 @@ The main goal of this lib is to fully cover the last API of etcd and to stay sim
 
 ### Connection
 
-`etcd-clj` doesn't require set connection if you use default configuration
+`etcd-clj` doesn't require set connection if you use default configuration.
+
 Otherwrise call `set-connection!`
 
 ```clojure
@@ -61,17 +62,16 @@ user> (etcd/sget :a)
 ### List contents from a directory
 
 In etcd `get` command works for regular keys and dirs.
-See etcd documentation for how it works.
+See [etcd documentation](https://github.com/coreos/etcd/blob/master/Documentation/api.md) for how it works.
 
 `etcd/list` fn is a helper which returns hash-map for a directory.
 It has two options:
 
-- `:recursive`     - lists subdirectories recursively, default is false.
-- `:with-dirs`     - makes sence only when option :recursive is false
-                     includes dirs in result with nil values.
-                     Default is true.
-
-
+* `:recursive`     - lists subdirectories recursively, default is `false`.
+* `:with-dirs`     - Includes dirs in result with `nil` values.
+ 
+                     makes sence only when option `:recursive` is `false`.
+                     Default is `true`.
 
 
 Notice that `etcd` didn't preserve the type of the key's value. This job is left to the caller:
@@ -167,14 +167,6 @@ user> (etcd/set :a 4)
 user> watchvalue
 #<Atom@69bcc736: {:action "set", :node {:key "/:a", :prevValue "3", :value "4", :modifiedIndex 20, :createdIndex 20}}>
 ```
-
-
-## License
-
-Copyright © 2013
-
-Distributed under the Eclipse Public License either version 1.0 or (at
-your option) any later version.
 
 [etcd]: https://github.com/coreos/etcd
 [http-kit]: http://http-kit.org/
