@@ -98,10 +98,12 @@
                   :node
                   :value)))
 
-    (etcd/set "etcd-clj/new-key" "value")
+    (future
+      (Thread/sleep 500)
+      (etcd/set "etcd-clj/new-key" "value"))
     (is (= "value"
            (-> wait-future
-               (deref 1000 nil)
+               (deref 2000 nil)
                :node
                :value))))
 

@@ -10,7 +10,7 @@
   :profiles {:dev {:plugins [[codox "0.8.0"]]
                    :dependencies []
                    :codox {:defaults {:doc/format :markdown}
-                           :src-dir-uri "https://github.com/narma/etcd-clj/blob/master"
+                           :src-dir-uri "https://github.com/narma/etcd-clj/blob/master/"
                            :src-linenum-anchor-prefix "L"}
                    }}
   )
