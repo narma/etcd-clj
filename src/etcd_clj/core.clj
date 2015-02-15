@@ -227,6 +227,9 @@
                with-dirs true}}]
   (let [resp (get key :dir true :recursive recursive)
         nodes (get-in resp [:node :nodes])]
+    (when (and (:errorCode resp)
+               (not= (:errorCode resp) 100)) ;; except key not found
+      (throw (ex-info (:message resp) resp)))
     (loop [dir nodes
            data-rest []
            ks []
