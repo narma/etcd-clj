@@ -8,7 +8,11 @@
                  [cheshire "5.2.0"]
                  [com.cemerick/url "0.1.0"]]
   :profiles {:dev {:plugins [[codox "0.8.0"]]
-                   :dependencies []}}
+                   :dependencies []
+                   :codox {:defaults {:doc/format :markdown}
+                           :src-dir-uri "https://github.com/narma/etcd-clj/blob/master"
+                           :src-linenum-anchor-prefix "L"}
+                   }}
   )
                    
 

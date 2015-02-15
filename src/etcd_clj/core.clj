@@ -75,9 +75,10 @@
           parse-response))))
 
 (defn set
-  "Sets key to value, optionally takes ttl in seconds as keyword argument
-  Use `:ttl nil` to remove ttl.
+  "Sets key to value.
   Options:
+  :dir        - create a dir
+  :ttl        - set ttl with a seconds, use `nil` for remove tll
   :prev-value
   :prev-index
   :prev-exist - conditional arguments, see etcd API for usage
@@ -99,7 +100,16 @@
                                  {:ttl ttl}))
            :callback callback))
 
-(defn get [key & {:keys [recursive wait wait-index callback sorted]
+(defn get
+  "Get key from etcd.
+  Options:
+  :callback   - return promise immediately with a promise
+  :wait       - wait a change, it's etcd feature
+  :wait-index - wait for a concrete index
+  :recursive  - get content recursively
+  :sorted     - returns result in sorted order
+"
+  [key & {:keys [recursive wait wait-index callback sorted]
                       :or {recursive false wait false}}]
   (api-req :get (->> key url-encode (format "keys/%s"))           
            :timeout (if wait Integer/MAX_VALUE *timeout*)
@@ -111,7 +121,16 @@
                                         :sorted sorted}))
            :callback callback))
 
-(defn del [key & {:keys [recursive callback dir prev-value prev-index]
+(defn del
+  "Delete a key.
+  Options:
+  :recursive - delete key recursively
+  :dir       - delete a dir
+  :prev-value
+  :prev-index - CAD conditions
+  :callback 
+  "
+  [key & {:keys [recursive callback dir prev-value prev-index]
                           :or {recursive false}
                           :as opts}]
   (api-req :delete (->> key url-encode (format "keys/%s"))
@@ -134,25 +153,35 @@
     (apply get (flatten (into [key] args)))))
 
 (defn mkdir
-  "sets with implicit :dir true and without value"
+  "`set` with implicit :dir true and without value"
   [key & {:as opts}]
   (let [args (merge opts {:dir true})]
     (apply set (flatten (into [key nil] args)))))
 
-(defn machines []
+(defn machines
+  "return list of connected machines"
+  []
   (api-req :get "keys/_etcd/machines"))
 
-(defn stats-leader []
+(defn stats-leader
+  "leader stats"
+  []
   (api-req :get "stats/leader"))
 
-(defn stats-self []
+(defn stats-self
+  "self stat"
+  []
   (api-req :get "stats/self"))
 
-(defn stats-store []
+(defn stats-store
+  "store stat"
+  []
   (api-req :get "stats/store"))
 
-(defn version []
-  "returns a version"
+(defn version
+  "returns a hash-map version even for old etcd.
+  keys: :internalVersion, :releaseVersion"
+  []
   (let [resp @(http/request {:method :get
                              :timeout *timeout*
                              :url (make-url "version")})
@@ -166,7 +195,7 @@
 ;; Helpers, simplified api, throws exceptions if error occurs
 
 (defn set!
-  "Throws exception on error"
+  "Same as set, but throws exception on error"
   [& args]
   (let [resp (apply set args)
         error-code (:errorCode resp)]
