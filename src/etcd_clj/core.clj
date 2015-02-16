@@ -1,34 +1,46 @@
 (ns etcd-clj.core
-  "For detailed API see https://github.com/coreos/etcd/blob/master/Documentation/api.md
-
-  `get`, `set`, `del`, `wait`, `mkdir` functions accept :callback argument.
-  If it is provided, fn immediately returns with a promise.
-  Callback will be called on response.
-"
+  "For detailed API see https://github.com/coreos/etcd/blob/master/Documentation/api.md"
+  (:import [java.net URLEncoder])
   (:require [cheshire.core :as json]
-            [cemerick.url :refer (url-encode)]
-            [org.httpkit.client :as http]
+            [etcd-clj.http :as http]
             [clojure.string :as str])
   (:refer-clojure :exclude [list get set]))
 
+(set! *warn-on-reflection* true)
 
-(def default-config {:protocol "http" :host "127.0.0.1" :port 4001})
+(def default-config {:protocol "http" :host "127.0.0.1" :port 4001
+                     :connect-timeout 1000 :read-timeout Integer/MAX_VALUE})
+
 (def ^{:dynamic true :doc "Connection config" }  *etcd-config* default-config)
 
-(def ^{:dynamic true :doc "Connection and read timeout" } *timeout* 2000)
+(def ^{:dynamic true :doc "request timeout"}  *timeout* 2000)
+
 (def ^:dynamic *api-version* "v2")
 
+(let [cfg (http/build-config default-config)]
+  (defonce ^{:dynamic true :no-doc true}  *connection* (http/create cfg)))
+
+(defn url-encode
+  ;; copied from cemeric.url
+  [string]
+  (some-> string str (URLEncoder/encode "UTF-8") (.replace "+" "%20")))
+
 (defn set-connection!
-  "Defaults for :port 4001, :host \"127.0.0.1\", :protocol \"http\""
+  "Defaults for :port 4001, :host \"127.0.0.1\", :protocol \"http\","
   ;; Blindly copied the approach from congomongo, but without most of the protections
-  [{:keys [protocol host port]}]
-  (let [config (->> {:protocol protocol :host host :port port}
+  [{:keys [protocol host port connect-timeout read-timeout]
+    :as opts}]
+  (let [config (->> opts
                     (filter second)
                     (into {})
                     (merge default-config))]
-    (alter-var-root #'*etcd-config* (constantly config))
-    (when (thread-bound? #'*etcd-config*)
-      (set! *etcd-config* config))))
+    (if (thread-bound? #'*etcd-config*)
+      (set! *etcd-config* config)
+      (alter-var-root #'*etcd-config* (constantly config)))
+    (let [new-conn (-> config http/build-config http/create)]
+      (if (thread-bound? (var *connection*))
+        (set! *connection* new-conn)
+        (alter-var-root (var *connection*) (constantly new-conn))))))
 
 (defmacro with-connection [config & body]
   `(do
@@ -46,12 +58,8 @@
 
 (defn ^:no-doc parse-response
   [resp]
-  (if-let [error (-> resp :error)]
-    (throw error) ; exception in http-kit response
-    (-> resp
-        :body
-        (cheshire.core/decode true))))
-
+  (-> (http/body resp)
+      (cheshire.core/decode true)))
 
 (defn  ^:no-doc wrap-callback
   [callback]
@@ -62,17 +70,37 @@
 
 (defn api-req
   "Makes an api call, wraps callback with parsing response body if it is provided"
-  [method path & {:keys [callback] :as opts}]
+  [method path & {:keys [callback timeout as] :as opts}]
   (let [resp (http/request (merge {:method method
+                                   :client *connection*
                                    :timeout *timeout*
                                    :url (make-url *api-version* path)}
-                                   opts)
-                           (when callback
-                             (wrap-callback callback)))]
-    (if callback
-      resp
-      (-> @resp
-          parse-response))))
+                                  (filter second
+                                          {:timeout timeout
+                                           :on-completed (when callback
+                                                           (wrap-callback callback))
+                                           })
+                                  (dissoc opts :callback :timeout)
+                                  ))
+        ret (reify
+              clojure.lang.IPending
+              (isRealized [_] (.isDone resp))
+              
+              java.util.concurrent.Future
+              (cancel [_ interrupt?]
+                (.cancel resp interrupt?))
+              (get [_] (->
+                        (.get resp)
+                        parse-response))
+              (get [_ timeout unit]
+                (-> (.get resp timeout unit)
+                    parse-response))
+              (isCancelled [_] (.isCancelled resp))
+              (isDone [_] (.isDone resp)))]
+
+    (if (or callback (= as :future))
+      ret
+      @ret)))
 
 (defn set
   "Sets key to value.
@@ -84,7 +112,7 @@
   :prev-exist - conditional arguments, see etcd API for usage
   :order      - Creating an in-order key in that dir
   "
-  [key value & {:keys [ttl dir callback order prev-value prev-index prev-exist]
+  [key value & {:keys [ttl dir callback order prev-value prev-index prev-exist as]
                 :as opts
                 :or {dir false}}]
   (api-req (if order :post :put)
@@ -93,7 +121,8 @@
                                  {:dir dir}
                                  {:value value})
                                (remove #(-> % second nil?)
-                                       {:prevIndex prev-index
+                                       {:as as
+                                        :prevIndex prev-index
                                         :prevValue prev-value
                                         :prevExist prev-exist})
                                (when (contains? opts :ttl)
@@ -109,10 +138,11 @@
   :recursive  - get content recursively
   :sorted     - returns result in sorted order
 "
-  [key & {:keys [recursive wait wait-index callback sorted]
+  [key & {:keys [recursive wait wait-index callback sorted as]
                       :or {recursive false wait false}}]
   (api-req :get (->> key url-encode (format "keys/%s"))           
-           :timeout (if wait Integer/MAX_VALUE *timeout*)
+           :timeout (when wait Integer/MAX_VALUE)
+           :as (if wait :future as)
            :query-params (merge {}
                                 (filter second
                                        {:wait wait
@@ -130,13 +160,14 @@
   :prev-index - CAD conditions
   :callback 
   "
-  [key & {:keys [recursive callback dir prev-value prev-index]
+  [key & {:keys [recursive callback dir prev-value prev-index as]
                           :or {recursive false}
                           :as opts}]
   (api-req :delete (->> key url-encode (format "keys/%s"))
            :query-params (merge {}
                                 (filter second
-                                        {:recursive recursive
+                                        {:as as
+                                         :recursive recursive
                                          :prevValue prev-value
                                          :prevIndex prev-index
                                          :dir dir}))
@@ -158,11 +189,6 @@
   (let [args (merge opts {:dir true})]
     (apply set (flatten (into [key nil] args)))))
 
-(defn machines
-  "return list of connected machines"
-  []
-  (api-req :get "keys/_etcd/machines"))
-
 (defn stats-leader
   "leader stats"
   []
@@ -183,9 +209,8 @@
   keys: :internalVersion, :releaseVersion"
   []
   (let [resp @(http/request {:method :get
-                             :timeout *timeout*
-                             :url (make-url "version")})
-        body (-> resp :body)]
+                            :url (make-url "version")})
+        body (-> resp http/body)]
     (if (re-matches #"etcd.*" body) ;; 0.x version
       {:releaseVersion (last (re-matches #"etcd\s(.*)" body))
        :internalVersion "0"} ;; be consistent

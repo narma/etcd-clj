@@ -1,3 +1,12 @@
+# WIP
+
+- Migrate from `http-kit` to `asynchttpclient` java library
+- [BREAKING] wait now returns future object.
+- [BREAKING] core API methods now returns `future` object instead `promise`
+  When user provide `:callback` or `:as` with value `:future` arguments
+- Remove `machines` which using deprecated key `_etcd`
+
+
 # 0.2.3
 
 - Forked from [cetcd](https://github.com/dwwoelfel/cetcd) project.
