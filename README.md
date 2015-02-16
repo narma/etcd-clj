@@ -1,7 +1,7 @@
 # etcd-clj [![Build Status](https://travis-ci.org/narma/etcd-clj.svg?branch=master)](https://travis-ci.org/narma/etcd-clj)
 
 A Clojure client for [etcd].
-Uses [http-kit] to talk to [etcd], so we get callbacks for free.
+The main goal of this lib is to fully cover API of etcd and to stay simple and performant.
 
 ## Installation
 

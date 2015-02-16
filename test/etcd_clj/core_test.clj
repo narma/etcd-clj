@@ -93,7 +93,7 @@
 
 (deftest watch-key-works
   (etcd/del "etcd-clj/new-key")
-  (let [wait-future (future (etcd/wait "etcd-clj/new-key"))]
+  (let [wait-future (etcd/wait "etcd-clj/new-key")]
     (is (nil? (-> (etcd/get "etcd-clj/new-key")
                   :node
                   :value)))
@@ -116,7 +116,7 @@
       (is (= "new value" (-> @result-atom :node :value))))))
 
 (deftest exceptional-errors-throw-exceptions
-  (is (thrown? java.net.ConnectException
+  (is (thrown? java.util.concurrent.ExecutionException ;java.net.ConnectException
         (etcd/with-connection {:port 4002}
           (etcd/get "etcd-clj/key")))))
 
