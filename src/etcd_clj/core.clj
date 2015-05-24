@@ -6,101 +6,62 @@
             [clojure.string :as str])
   (:refer-clojure :exclude [list get set]))
 
-(set! *warn-on-reflection* true)
-
-(def default-config {:protocol "http" :host "127.0.0.1" :port 4001
-                     :connect-timeout 1000 :read-timeout Integer/MAX_VALUE})
-
-(def ^{:dynamic true :doc "Connection config" }  *etcd-config* default-config)
 
 (def ^{:dynamic true :doc "request timeout"}  *timeout* 2000)
+(def ^{:dynamic true} *api-version* "v2")
 
-(def ^:dynamic *api-version* "v2")
 
-(let [cfg (http/build-config default-config)]
-  (defonce ^{:dynamic true :no-doc true}  *connection* (http/create cfg)))
+(defn set-default-timeout! [timeout]
+  (alter-var-root (var *timeout*) (constantly timeout)))
+
+
+(defn set-connection!
+  "Defaults for :port 4001, :host \"127.0.0.1\", :protocol \"http\""
+  [provider-class & config]
+  (let [config (http/prepare-config config)
+        provider (provider-class config)
+        connection (http/open provider)]
+    (if (thread-bound? #'http/*http-config*)
+      (set! http/*http-config* config)
+      (alter-var-root #'http/*http-config* (constantly config)))
+    (if (thread-bound? #'http/*connection*)
+      (set! http/*connection* connection)
+      (alter-var-root #'http/*connection* (constantly connection)))))
+
+(defmacro with-connection [config & body]
+  `(do
+     (let [config# (merge http/default-config ~config)]
+       (binding [http/*http-config* config#]
+         ~@body))))
+
 
 (defn url-encode
   ;; copied from cemeric.url
   [string]
   (some-> string str (URLEncoder/encode "UTF-8") (.replace "+" "%20")))
 
-(defn set-connection!
-  "Defaults for :port 4001, :host \"127.0.0.1\", :protocol \"http\","
-  ;; Blindly copied the approach from congomongo, but without most of the protections
-  [{:keys [protocol host port connect-timeout read-timeout]
-    :as opts}]
-  (let [config (->> opts
-                    (filter second)
-                    (into {})
-                    (merge default-config))]
-    (if (thread-bound? #'*etcd-config*)
-      (set! *etcd-config* config)
-      (alter-var-root #'*etcd-config* (constantly config)))
-    (let [new-conn (-> config http/build-config http/create)]
-      (if (thread-bound? (var *connection*))
-        (set! *connection* new-conn)
-        (alter-var-root (var *connection*) (constantly new-conn))))))
-
-(defmacro with-connection [config & body]
-  `(do
-     (let [config# (merge default-config ~config)]
-       (binding [*etcd-config* config#]
-         ~@body))))
-
 (defn ^:no-doc make-url
   "Constructs url used for all api calls"
   [& parts]
-  (str (java.net.URL. (:protocol *etcd-config*)
-                      (:host *etcd-config*)
-                      (:port *etcd-config*)
+  (str (java.net.URL. (:protocol http/*http-config*)
+                      (:host http/*http-config*)
+                      (:port http/*http-config*)
                       (str/join "/" (concat [""] parts)))))
 
-(defn ^:no-doc parse-response
-  [resp]
-  (-> (http/body resp)
-      (cheshire.core/decode true)))
-
-(defn  ^:no-doc wrap-callback
-  [callback]
-  (fn [resp]
-    (-> resp
-        parse-response
-        callback)))
+(defn ^:no-doc parse-body
+  [body]
+  (cheshire.core/decode body true))
 
 (defn api-req
   "Makes an api call, wraps callback with parsing response body if it is provided"
-  [method path & {:keys [callback timeout as] :as opts}]
-  (let [resp (http/request (merge {:method method
-                                   :client *connection*
-                                   :timeout *timeout*
-                                   :url (make-url *api-version* path)}
-                                  (filter second
-                                          {:timeout timeout
-                                           :on-completed (when callback
-                                                           (wrap-callback callback))
-                                           })
-                                  (dissoc opts :callback :timeout)
-                                  ))
-        ret (reify
-              clojure.lang.IPending
-              (isRealized [_] (.isDone resp))
-              
-              java.util.concurrent.Future
-              (cancel [_ interrupt?]
-                (.cancel resp interrupt?))
-              (get [_] (->
-                        (.get resp)
-                        parse-response))
-              (get [_ timeout unit]
-                (-> (.get resp timeout unit)
-                    parse-response))
-              (isCancelled [_] (.isCancelled resp))
-              (isDone [_] (.isDone resp)))]
-
-    (if (or callback (= as :future))
-      ret
-      @ret)))
+  [method path & {:keys [conn timeout]
+                  :as opts}]
+  (http/request (or conn http/*connection* @http/injected-connection)
+                (merge {:method method
+                        :timeout (or timeout *timeout*)
+                        :url (make-url *api-version* path)}
+                       (dissoc opts :timeout))
+                parse-body))
 
 (defn set
   "Sets key to value.
@@ -112,22 +73,22 @@
   :prev-exist - conditional arguments, see etcd API for usage
   :order      - Creating an in-order key in that dir
   "
-  [key value & {:keys [ttl dir callback order prev-value prev-index prev-exist as]
+  [key value & {:keys [ttl dir order prev-value prev-index prev-exist]
                 :as opts
                 :or {dir false}}]
   (api-req (if order :post :put)
            (->> key url-encode (format "keys/%s"))
-           :form-params (merge (if dir
-                                 {:dir dir}
-                                 {:value value})
-                               (remove #(-> % second nil?)
-                                       {:as as
-                                        :prevIndex prev-index
-                                        :prevValue prev-value
-                                        :prevExist prev-exist})
-                               (when (contains? opts :ttl)
-                                 {:ttl ttl}))
-           :callback callback))
+           :form-params (merge
+                         (dissoc opts :ttl :dir :order :prev-value :prev-index :prev-exist)
+                         (if dir
+                           {:dir dir}
+                           {:value value})
+                         (remove #(-> % second nil?)
+                                 {:prevIndex prev-index
+                                  :prevValue prev-value
+                                  :prevExist prev-exist})
+                         (when (contains? opts :ttl)
+                           {:ttl ttl}))))
 
 (defn get
   "Get key from etcd.
@@ -136,20 +97,18 @@
   :wait       - wait a change, it's etcd feature
   :wait-index - wait for a concrete index
   :recursive  - get content recursively
-  :sorted     - returns result in sorted order
-"
-  [key & {:keys [recursive wait wait-index callback sorted as]
-                      :or {recursive false wait false}}]
-  (api-req :get (->> key url-encode (format "keys/%s"))           
+  :sorted     - returns result in sorted order"
+  [key & {:keys [recursive wait wait-index sorted]
+          :as opts
+          :or {recursive false wait false}}]
+  (api-req :get (->> key url-encode (format "keys/%s"))
            :timeout (when wait Integer/MAX_VALUE)
-           :as (if wait :future as)
-           :query-params (merge {}
+           :query-params (merge (dissoc opts :recursive :wait :wait-index :sorted)
                                 (filter second
                                        {:wait wait
                                         :waitIndex wait-index
                                         :recursive recursive
-                                        :sorted sorted}))
-           :callback callback))
+                                        :sorted sorted}))))
 
 (defn del
   "Delete a key.
@@ -158,25 +117,23 @@
   :dir       - delete a dir
   :prev-value
   :prev-index - CAD conditions
-  :callback 
+  :callback
   "
-  [key & {:keys [recursive callback dir prev-value prev-index as]
+  [key & {:keys [recursive dir prev-value prev-index]
                           :or {recursive false}
                           :as opts}]
   (api-req :delete (->> key url-encode (format "keys/%s"))
            :query-params (merge {}
                                 (filter second
-                                        {:as as
-                                         :recursive recursive
+                                        {:recursive recursive
                                          :prevValue prev-value
                                          :prevIndex prev-index
-                                         :dir dir}))
-           :callback callback))
+                                         :dir dir})
+                                (dissoc opts :recursive :dir :prev-value :prev-index))))
 
 (defn wait
-  "Immediately returns promise if :callback was provided
-  Otherwise it is blocked until response is ready. 
-  In this case you may want to use (future).
+  "Immediately returns promise|future or block,
+  behaviourdepends on provider
 
   get with implicit :wait true"
   [key & {:as opts}]
@@ -205,16 +162,12 @@
   (api-req :get "stats/store"))
 
 (defn version
-  "returns a hash-map version even for old etcd.
-  keys: :internalVersion, :releaseVersion"
-  []
-  (let [resp @(http/request {:method :get
-                            :url (make-url "version")})
-        body (-> resp http/body)]
-    (if (re-matches #"etcd.*" body) ;; 0.x version
-      {:releaseVersion (last (re-matches #"etcd\s(.*)" body))
-       :internalVersion "0"} ;; be consistent
-      (parse-response resp))));; 2.x version
+  [& {:keys [connection]
+      :or {connection (or http/*connection* @http/injected-connection)}}]
+  @(http/request connection
+                 {:method :get
+                  :url (make-url "version")}
+                 identity))
 
 
 ;; Helpers, simplified api, throws exceptions if error occurs
@@ -222,24 +175,24 @@
 (defn set!
   "Same as set, but throws exception on error"
   [& args]
-  (let [resp (apply set args)
+  (let [resp @(apply set args)
         error-code (:errorCode resp)]
     (if error-code
       (throw (ex-info (:message resp) resp))
       resp)))
 
-(defn sget
+(defn get!
   "Returns only value for a key (for dirs returns nil).
   Throws an exception on errors.
   Use get for advanced usage."
   [& args]
-  (let [resp (apply get args)
+  (let [resp @(apply get args)
         error-code (:errorCode resp)]
     (if (and error-code (not= error-code 100)) ;; 100 like 404 in http, just return nil
       (throw (ex-info (:message resp) resp))
       (get-in resp [:node :value]))))
 
-(defn slist
+(defn ls
   "Lists content of directory. Returns a hash-map.
   Options:
    :recursive     - lists subdirectories recursively, default is false.
@@ -250,7 +203,7 @@
   [key & {:keys [recursive with-dirs]
           :or {recursive false
                with-dirs true}}]
-  (let [resp (get key :dir true :recursive recursive)
+  (let [resp @(get key :dir true :recursive recursive)
         nodes (get-in resp [:node :nodes])]
     (when (and (:errorCode resp)
                (not= (:errorCode resp) 100)) ;; except key not found
@@ -270,13 +223,13 @@
         (cond
           (and (nil? dirs) (empty? data-rest))
           acc
-          
+
           (nil? dirs)
           (recur (first data-rest)
                  (rest data-rest)
                  (pop ks)
                  acc)
-          
+
           :else
           (recur (-> (first dirs) :nodes)
                  (cons (rest dirs) data-rest)
