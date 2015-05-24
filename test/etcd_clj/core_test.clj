@@ -1,7 +1,7 @@
 (ns etcd-clj.core-test
   (:require [clojure.test :refer :all]
-            [etcd-clj.core :as etcd]
-            [etcd-clj.asynchttp :as asynchttp]))
+            [etcd-clj.aleph]
+            [etcd-clj.core :as etcd]))
 
 (defn kns [f]
   (etcd/mkdir "etcd-clj")
@@ -118,7 +118,7 @@
   )
 
 (deftest exceptional-errors-throw-exceptions
-  (is (thrown? java.util.concurrent.ExecutionException ;java.net.ConnectException
+  (is (thrown? java.lang.Throwable ;java.net.ConnectException
         (etcd/with-connection {:port 4002}
           @(etcd/get "etcd-clj/key")))))
 

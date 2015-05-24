@@ -7,15 +7,16 @@
   :profiles {:travis {:modules {:subprocess "lein2"}}
              :dev {:plugins [[codox "0.8.0"]]
                    :dependencies [[org.clojure/clojure "1.7.0-beta3"]
+                                  [aleph "0.4.0"]
                                   [com.ning/async-http-client "1.9.10"]]
-                   :source-paths ["src" "providers/asynchttp/src"]
+                   :source-paths ["src" "providers/asynchttp/src" "providers/aleph/src"]
                    :codox {:defaults {:doc/format :markdown}
                            :src-dir-uri "https://github.com/narma/etcd-clj/blob/master/"
                            :src-linenum-anchor-prefix "L"}
                    }}
 
   :modules {
-   :dirs ["." "providers/asynchttp"]
+   :dirs ["." "providers/asynchttp" "providers/aleph"]
    :inherited {:url "http://github.com/narma/etcd-clj"
                :scm {:dir "."}
                :license {:name "Eclipse Public License"
